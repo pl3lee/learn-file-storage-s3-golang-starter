@@ -1,9 +1,16 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -49,14 +56,21 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer file.Close()
-	mediaType := fileHeader.Header.Get("Content-Type")
 
-	// reads image data
-	imageData, err := io.ReadAll(file)
+	// Parse out mime type.
+	mediaType, _, err := mime.ParseMediaType(fileHeader.Header.Get("Content-Type"))
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to read file", err)
+		respondWithError(w, http.StatusBadRequest, "Malformed mime type", nil)
 		return
 	}
+	if mediaType != "image/jpeg" && mediaType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Unsupported file type", nil)
+		return
+	}
+
+	// extract file extension
+	fileExtension := strings.Split(mediaType, "/")[1]
+
 	// gets metadata of video from db
 	videoMetaData, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -65,16 +79,46 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	// checks if user owns the video
 	if videoMetaData.UserID != userID {
-		respondWithError(w, http.StatusUnauthorized, "Video does not belong to user", err)
+		respondWithError(w, http.StatusUnauthorized, "Video does not belong to user", fmt.Errorf("video does not belong to user"))
 		return
 	}
-	// save thumbnail to global map
-	videoThumbnails[videoID] = thumbnail{
-		data:      imageData,
-		mediaType: mediaType,
+
+	randomID := make([]byte, 32)
+	_, err = rand.Read(randomID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Can't generate random ID", err)
+		return
+	}
+	randomIDB64 := base64.RawURLEncoding.EncodeToString(randomID)
+
+	// generate file path
+	filePath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%v.%v", randomIDB64, fileExtension))
+
+	// create an empty file with the filepath
+	fileOnFS, err := os.Create(filePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot create file with filepath", err)
+		return
+	}
+	// remember to close the file!
+	defer fileOnFS.Close()
+
+	// copy image to the file
+	_, err = io.Copy(fileOnFS, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Cannot copy to file system", err)
+		return
 	}
 
-	thumbnailURL := fmt.Sprintf("http://localhost:%v/api/thumbnails/%v", cfg.port, videoID)
+	// create base url
+	baseURL := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("localhost:%v", cfg.port),
+		// Path:   fmt.Sprintf("/assets/%v.%v", randomIDB64, fileExtension),
+		Path: filePath,
+	}
+	// Get the formatted URL string
+	thumbnailURL := baseURL.String()
 
 	// Create a new struct for the video
 	newUpdatedVideo := database.Video{
