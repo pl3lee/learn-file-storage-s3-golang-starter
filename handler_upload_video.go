@@ -90,9 +90,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Could not reset file pointer", err)
 		return
 	}
-
+	// get aspect ratio and append a prefix to the key
+	aspectRatio, err := getVideoAspectRatio(tempFile.Name())
+	var prefix string
+	if aspectRatio == "16:9" {
+		prefix = "landscape/"
+	} else if aspectRatio == "9:16" {
+		prefix = "portrait/"
+	} else {
+		prefix = "other/"
+	}
 	// generates a random id and append extension to it. For example, abcde.mp4. This generates a random key, so that we can use it as the key to the object
-	key := getAssetPath(mediaType)
+	key := prefix + getAssetPath(mediaType)
 
 	// puts the object into bucket
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
