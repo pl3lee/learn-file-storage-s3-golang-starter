@@ -133,7 +133,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	// now url stores the bucket and key, e.g. tube-private-1,portrait/abcdefg.mp4
-	url := fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
+	// url := fmt.Sprintf("%s,%s", cfg.s3Bucket, key)
+
+	// cloudfront URL
+	url := fmt.Sprintf("%v/%v", cfg.s3CfDistribution, key)
+
 	// updates the video with object url and store in database
 	video.VideoURL = &url
 	err = cfg.db.UpdateVideo(video)
@@ -141,10 +145,11 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update video", err)
 		return
 	}
-	presignedVid, err := cfg.dbVideoToSignedVideo(video)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Couldn't generate presigned video", err)
-		return
-	}
-	respondWithJSON(w, http.StatusOK, presignedVid)
+
+	// presignedVid, err := cfg.dbVideoToSignedVideo(video)
+	// if err != nil {
+	// 	respondWithError(w, http.StatusInternalServerError, "Couldn't generate presigned video", err)
+	// 	return
+	// }
+	// respondWithJSON(w, http.StatusOK, presignedVid)
 }
